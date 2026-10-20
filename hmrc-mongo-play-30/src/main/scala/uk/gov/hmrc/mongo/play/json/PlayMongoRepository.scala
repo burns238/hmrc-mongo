@@ -62,6 +62,9 @@ class PlayMongoRepository[A: ClassTag](
     */
   protected[mongo] lazy val requiresTtlIndex = true
 
+  // Override this in order to run 
+  protected[mongo] lazy val checkTTLKeyFieldData = false
+
   lazy val initialised: Future[Unit] =
     for {
       _ <- ensureSchema()
@@ -82,7 +85,7 @@ class PlayMongoRepository[A: ClassTag](
     for {
       res <- MongoUtils.ensureIndexes(collection, indexes, replaceIndexes)
       _   <- if (requiresTtlIndex)
-               MongoUtils.checkTtlIndex(mongoComponent, collectionName, checkType = true)
+               MongoUtils.checkTtlIndex(mongoComponent, collectionName, checkType = checkTTLKeyFieldData)
              else Future.unit
     } yield res
 

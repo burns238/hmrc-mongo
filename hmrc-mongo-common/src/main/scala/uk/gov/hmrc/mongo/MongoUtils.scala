@@ -123,21 +123,14 @@ trait MongoUtils {
       dataType <- if (!hasData)
         Future.successful(List())
       else {
-        val isNotArrayThatContainsDate = Filters.not(Filters.`type`(key, BsonType.DATE_TIME))
-
-        val isANonDateType = Seq(
-          BsonType.STRING, BsonType.INT32, BsonType.INT64, BsonType.DOUBLE,
-          BsonType.DECIMAL128, BsonType.BOOLEAN, BsonType.OBJECT_ID,
-          BsonType.DOCUMENT, BsonType.TIMESTAMP, BsonType.BINARY,
-          BsonType.REGULAR_EXPRESSION
-        )
+        val isANonDateType: List[BsonType] = BsonType.values.toList.filterNot(Set(BsonType.DATE_TIME, BsonType.END_OF_DOCUMENT, BsonType.MIN_KEY, BsonType.MAX_KEY, BsonType.ARRAY))
 
         val isANonDateTypeOrNull = Filters.or(
           Filters.equal(key, null) +: isANonDateType.map(t => Filters.`type`(key, t)): _*
         )
         val query = collection
           .aggregate[BsonDocument](Seq(
-            Aggregates.`match`(Filters.and(isNotArrayThatContainsDate, isANonDateTypeOrNull)),
+            Aggregates.`match`(isANonDateTypeOrNull),
             Aggregates.group(BsonDocument("$type" -> s"$$$key"), Accumulators.sum("n", 1))
           ))
           .hint(Indexes.ascending(key))

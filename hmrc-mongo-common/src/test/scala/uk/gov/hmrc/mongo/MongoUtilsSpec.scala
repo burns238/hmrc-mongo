@@ -375,7 +375,7 @@ class MongoUtilsSpec
       res shouldBe Map("field2" -> List())
     }
 
-    s"return no warnings when ttl index points at array with date" in {
+    s"return no warnings when ttl index points at array with only dates" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -387,12 +387,34 @@ class MongoUtilsSpec
       val res =
         (for {
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
-           items =  (1 to 99).map(i => BsonDocument("field2" -> new BsonArray(Seq(new BsonDateTime(i), new BsonString(i.toString)).asJava)))
+           items =  (1 to 99).map(i => BsonDocument("field2" -> new BsonArray(Seq(new BsonDateTime(i), new BsonDateTime(i)).asJava)))
            _     <- collection.insertMany(items) .toFuture()
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
       res shouldBe Map("field2" -> List())
+    }
+
+    s"return a warning when ttl index points at array containing both dates and other types" in {
+      // This scenario would actually be picked up by a TTL index correctly,
+      // however using arrays in the TTL key field should be discouraged
+      val indexes1 =
+        Seq(
+          IndexModel(Indexes.ascending("field1"), IndexOptions()),
+          IndexModel(Indexes.ascending("field2"), IndexOptions()
+            .name("ttlIndex")
+            .expireAfter(1000, TimeUnit.MILLISECONDS)
+          )
+        )
+      val res =
+        (for {
+          _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
+          items =  (1 to 99).map(i => BsonDocument("field2" -> new BsonArray(Seq(new BsonDateTime(i), new BsonString(i.toString)).asJava)))
+          _     <- collection.insertMany(items) .toFuture()
+          res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
+        } yield res
+          ).futureValue
+      res shouldBe Map("field2" -> List(TtlWarning.InvalidType("array", 99)))
     }
 
     s"return an InvalidType warning when ttl index points at array containing no dates" in {
