@@ -82,7 +82,7 @@ class PlayMongoRepository[A: ClassTag](
     for {
       res <- MongoUtils.ensureIndexes(collection, indexes, replaceIndexes)
       _   <- if (requiresTtlIndex)
-               MongoUtils.checkTtlIndex(mongoComponent, collectionName, checkType = false)
+               MongoUtils.checkTtlIndex(mongoComponent, collectionName, checkType = true)
              else Future.unit
     } yield res
 

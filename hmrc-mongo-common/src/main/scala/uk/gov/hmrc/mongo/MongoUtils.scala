@@ -16,7 +16,6 @@
 
 package uk.gov.hmrc.mongo
 
-import com.mongodb.ExplainVerbosity
 import com.mongodb.client.model.{Accumulators, Indexes}
 import org.bson.{BsonType, BsonValue}
 import org.mongodb.scala.{Document, MongoCollection, MongoCommandException, MongoServerException, ObservableFuture, SingleObservableFuture}
@@ -124,33 +123,32 @@ trait MongoUtils {
       dataType <- if (!hasData)
         Future.successful(List())
       else {
-        val notValidTtl = Filters.not(Filters.`type`(key, BsonType.DATE_TIME))
+        val isNotArrayThatContainsDate = Filters.not(Filters.`type`(key, BsonType.DATE_TIME))
 
-        val nonDateTypes = Seq(
+        val isANonDateType = Seq(
           BsonType.STRING, BsonType.INT32, BsonType.INT64, BsonType.DOUBLE,
           BsonType.DECIMAL128, BsonType.BOOLEAN, BsonType.OBJECT_ID,
           BsonType.DOCUMENT, BsonType.TIMESTAMP, BsonType.BINARY,
           BsonType.REGULAR_EXPRESSION
         )
 
-        val nonDateOrMissing = Filters.or(
-          //Filters.equal(key, null) +: nonDateTypes.map(t => Filters.`type`(key, t)): _*
-          nonDateTypes.map(t => Filters.`type`(key, t)): _*
+        val isANonDateTypeOrNull = Filters.or(
+          Filters.equal(key, null) +: isANonDateType.map(t => Filters.`type`(key, t)): _*
         )
         val query = collection
           .aggregate[BsonDocument](Seq(
-            Aggregates.`match`(Filters.and(notValidTtl, nonDateOrMissing)),
+            Aggregates.`match`(Filters.and(isNotArrayThatContainsDate, isANonDateTypeOrNull)),
             Aggregates.group(BsonDocument("$type" -> s"$$$key"), Accumulators.sum("n", 1))
           ))
           .hint(Indexes.ascending(key))
-          .maxTime(10, TimeUnit.SECONDS)
-
-        query.explain(ExplainVerbosity.EXECUTION_STATS)
-          .subscribe((doc: Document) => logger.info(doc.toJson()),
-          (e: Throwable) => logger.info(s"There was an error: $e"))
+          .maxTime((10, TimeUnit.SECONDS))
 
         query.toFuture()
-          .map(_.map(d => TtlWarning.InvalidType(d.getString("_id").getValue, d.getInt32("n").getValue)).toList)
+          .map(_.map {
+            case d if d.getString("_id").getValue == "null" => TtlWarning.NullKeyField(d.getInt32("n").getValue)
+            case d if d.getString("_id").getValue == "missing" => TtlWarning.MissingKeyField(d.getInt32("n").getValue)
+            case d => TtlWarning.InvalidType(d.getString("_id").getValue, d.getInt32("n").getValue)
+          }.toList)
       }
     } yield dataType
 

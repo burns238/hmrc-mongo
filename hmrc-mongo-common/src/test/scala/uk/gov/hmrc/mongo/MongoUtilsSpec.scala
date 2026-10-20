@@ -292,6 +292,28 @@ class MongoUtilsSpec
       res shouldBe Map("field2" -> List(TtlWarning.InvalidType("int", 1)))
     }
 
+    "return multiple InvalidType warnings when ttl index points at non-date" in {
+      val indexes1 =
+        Seq(
+          IndexModel(Indexes.ascending("field1"), IndexOptions()),
+          IndexModel(Indexes.ascending("field2"), IndexOptions()
+            .name("ttlIndex")
+            .expireAfter(1000, TimeUnit.MILLISECONDS)
+          )
+        )
+      val res =
+        (for {
+          _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
+          items =  (1 to 99).map(i => BsonDocument("field2" -> (if (i % 2 == 0) new BsonInt32(i) else new BsonString("Something"))))
+          _     <- collection.insertMany(items) .toFuture()
+          res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
+        } yield res
+          ).futureValue
+
+      res("field2") should contain(TtlWarning.InvalidType("int", 49))
+      res("field2") should contain(TtlWarning.InvalidType("string", 50))
+    }
+
     "return a MissingKeyField warning when ttl index points at missing field" in {
       val indexes1 =
         Seq(
