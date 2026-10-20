@@ -18,8 +18,8 @@ package uk.gov.hmrc.mongo
 
 import com.mongodb.MongoCommandException
 import org.mongodb.scala.{Document, ObservableFuture, SingleObservableFuture}
-import org.mongodb.scala.bson.{BsonArray, BsonDateTime, BsonDocument, BsonInt32, BsonString}
-import org.mongodb.scala.model.{Indexes, IndexModel, IndexOptions}
+import org.mongodb.scala.bson.{BsonArray, BsonDateTime, BsonDocument, BsonInt32, BsonNull, BsonString}
+import org.mongodb.scala.model.{IndexModel, IndexOptions, Indexes}
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.concurrent.{IntegrationPatience, ScalaFutures}
 import org.scalatest.matchers.should.Matchers
@@ -251,7 +251,7 @@ class MongoUtilsSpec
            res <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List.empty[(String, List[TtlWarning])]
+      res shouldBe Map.empty[String, List[TtlWarning]]
     }
 
     s"return no warnings when ttl index but no data" in {
@@ -269,7 +269,7 @@ class MongoUtilsSpec
            res <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List())
+      res shouldBe Map("field2" -> List())
     }
 
     "return an InvalidType warning when ttl index points at non-date" in {
@@ -289,7 +289,7 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List(TtlWarning.InvalidType("int", 99)))
+      res shouldBe Map("field2" -> List(TtlWarning.InvalidType("int", 1)))
     }
 
     "return a MissingKeyField warning when ttl index points at missing field" in {
@@ -309,8 +309,29 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List(TtlWarning.MissingKeyField(99)))
+      res shouldBe Map("field2" -> List(TtlWarning.MissingKeyField(99)))
     }
+
+    "return a NullKeyField warning when ttl index points at missing field" in {
+      val indexes1 =
+        Seq(
+          IndexModel(Indexes.ascending("field1"), IndexOptions()),
+          IndexModel(Indexes.ascending("field2"), IndexOptions()
+            .name("ttlIndex")
+            .expireAfter(1000, TimeUnit.MILLISECONDS)
+          )
+        )
+      val res =
+        (for {
+          _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
+          items =  (1 to 99).map(i => BsonDocument("field2" -> BsonNull()))
+          _     <- collection.insertMany(items) .toFuture()
+          res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
+        } yield res
+          ).futureValue
+      res shouldBe Map("field2" -> List(TtlWarning.NullKeyField(99)))
+    }
+
 
     s"return no warnings when ttl index points at date" in {
       val indexes1 =
@@ -329,7 +350,7 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List())
+      res shouldBe Map("field2" -> List())
     }
 
     s"return no warnings when ttl index points at array with date" in {
@@ -349,7 +370,7 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List())
+      res shouldBe Map("field2" -> List())
     }
 
     s"return an InvalidType warning when ttl index points at array containing no dates" in {
@@ -369,7 +390,7 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List(TtlWarning.InvalidType("array", 99)))
+      res shouldBe Map("field2" -> List(TtlWarning.InvalidType("array", 99)))
     }
 
     s"return no warnings when requested and ttl exists" in {
@@ -389,7 +410,7 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = false)
          } yield res
         ).futureValue
-      res shouldBe List("field2" -> List())
+      res shouldBe Map("field2" -> List())
     }
   }
 
