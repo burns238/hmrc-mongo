@@ -20,7 +20,7 @@ import org.mongodb.scala.{Document, MongoClient, MongoDatabase, ReadPreference, 
 import org.scalatest.{Args, BeforeAndAfterAll, BeforeAndAfterEach, Failed, Outcome, Status, Succeeded, TestSuite}
 import org.scalatest.concurrent.ScalaFutures
 import play.api.Logger
-import uk.gov.hmrc.mongo.{MongoComponent, MongoUtils, TtlState}
+import uk.gov.hmrc.mongo.{MongoComponent, MongoUtils, TtlWarning}
 
 import scala.concurrent.duration.{FiniteDuration, DurationLong}
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -124,7 +124,11 @@ trait TtlIndexedMongoSupport extends MongoSupport with TestSuite {
            if (ttlState.isEmpty)
              Failed(s"No ttl indexes were found for collection $collectionName")
            else {
-             val invalidTypes = ttlState.collect { case (k, TtlState.InvalidType(v)) => s"'$k' with type '$v'" }
+             val invalidTypes = ttlState.collect {
+               case (k, List(TtlWarning.InvalidType(v, c))) => s"$c documents contain data of type '$v' in key field '$k'"
+               case (k, List(TtlWarning.NullKeyField(c))) => s"$c documents contain null in key field '$k'"
+               case (k, List(TtlWarning.MissingKeyField(c))) => s"$c documents are missing data in key field '$k'"
+             }
              if (invalidTypes.nonEmpty)
                Failed(s"Ttl index fields should have type 'date', but found ${invalidTypes.mkString(", ")} for collection $collectionName")
              else

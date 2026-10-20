@@ -251,10 +251,10 @@ class MongoUtilsSpec
            res <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map.empty[String, TtlState]
+      res shouldBe List.empty[(String, List[TtlWarning])]
     }
 
-    s"return NoData when ttl index but no data" in {
+    s"return no warnings when ttl index but no data" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -269,10 +269,10 @@ class MongoUtilsSpec
            res <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.NoData)
+      res shouldBe List("field2" -> List())
     }
 
-    "return field name when ttl index points at non-date" in {
+    "return an InvalidType warning when ttl index points at non-date" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -289,10 +289,10 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.InvalidType("int"))
+      res shouldBe List("field2" -> List(TtlWarning.InvalidType("int", 99)))
     }
 
-    "return field name when ttl index points at missing field" in {
+    "return a MissingKeyField warning when ttl index points at missing field" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -309,10 +309,10 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.InvalidType("missing"))
+      res shouldBe List("field2" -> List(TtlWarning.MissingKeyField(99)))
     }
 
-    s"return ValidType when ttl index points at date" in {
+    s"return no warnings when ttl index points at date" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -329,10 +329,10 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.ValidType)
+      res shouldBe List("field2" -> List())
     }
 
-    s"return ValidType when ttl index points at array with date" in {
+    s"return no warnings when ttl index points at array with date" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -349,10 +349,10 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.ValidType)
+      res shouldBe List("field2" -> List())
     }
 
-    s"return InvalidType when ttl index points at array with date" in {
+    s"return an InvalidType warning when ttl index points at array containing no dates" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -369,10 +369,10 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = true)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.InvalidType("array"))
+      res shouldBe List("field2" -> List(TtlWarning.InvalidType("array", 99)))
     }
 
-    s"return TypeCheckSkipped when requested and ttl exists" in {
+    s"return no warnings when requested and ttl exists" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -389,7 +389,7 @@ class MongoUtilsSpec
            res   <- MongoUtils.getTtlState(mongoComponent, collectionName, checkType = false)
          } yield res
         ).futureValue
-      res shouldBe Map("field2" -> TtlState.TypeCheckSkipped)
+      res shouldBe List("field2" -> List())
     }
   }
 
