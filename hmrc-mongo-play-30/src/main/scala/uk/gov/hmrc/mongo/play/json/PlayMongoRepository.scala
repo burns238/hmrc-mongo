@@ -62,7 +62,7 @@ class PlayMongoRepository[A: ClassTag](
     */
   protected[mongo] lazy val requiresTtlIndex = true
 
-  // Override this in order to run 
+  // Override this in order to run checks against the data types in your TTL key field
   protected[mongo] lazy val checkTTLKeyFieldData = false
 
   lazy val initialised: Future[Unit] =
