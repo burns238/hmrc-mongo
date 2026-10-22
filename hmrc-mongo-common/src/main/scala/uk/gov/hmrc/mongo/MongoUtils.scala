@@ -16,7 +16,7 @@
 
 package uk.gov.hmrc.mongo
 
-import com.mongodb.client.model.{Accumulators, Indexes}
+import com.mongodb.client.model.Accumulators
 import org.bson.BsonType
 import org.mongodb.scala.{Document, MongoCollection, MongoCommandException, MongoServerException, ObservableFuture, SingleObservableFuture}
 import org.mongodb.scala.bson.BsonDocument
@@ -108,17 +108,6 @@ trait MongoUtils {
     }
   }
 
-  private[mongo] def checkKeyFieldDataForTTLs(
-    collection: MongoCollection[Document],
-    ttls: Seq[Document]
-  )(implicit ec: ExecutionContext): Future[List[TtlWarning]] = {
-    val warnings = ttls.map { ttl =>
-      val keyField = ttl("key").asDocument.getFirstKey // ttl indices are single-field indices
-      checkKeyFieldData(collection, keyField)
-    }
-    Future.sequence(warnings).map(_.flatten.toList)
-  }
-
   private[mongo] def getTTLIndexes(
      collection    : MongoCollection[Document],
   )(implicit ec: ExecutionContext): Future[Seq[Document]] =
@@ -126,31 +115,44 @@ trait MongoUtils {
      indexes <- collection.listIndexes().toFuture()
    } yield indexes.filter(i => i.contains("expireAfterSeconds"))
 
-  private[mongo] def checkKeyFieldData[A](
-   collection: MongoCollection[Document],
-   key: String
-  )(implicit ec: ExecutionContext): Future[List[TtlWarning]] = {
+  private[mongo] def checkKeyFieldDataForTTLs(
+                                               collection: MongoCollection[Document],
+                                               ttls: Seq[Document]
+                                             )(implicit ec: ExecutionContext): Future[List[TtlWarning]] = {
+    val warnings = ttls.map { ttl =>
+      val keyField = ttl("key").asDocument.getFirstKey // ttl indices are single-field indices
+      val indexName: String = ttl.getString("name")
+      checkKeyFieldData(collection, keyField, indexName)
+    }
+    Future.sequence(warnings).map(_.flatten.toList)
+  }
 
-    val collectionName = collection.namespace.getCollectionName
+  private[mongo] def checkKeyFieldData(
+   collection: MongoCollection[Document],
+   keyField: String,
+   indexName: String
+  )(implicit ec: ExecutionContext): Future[List[TtlWarning]] = {
 
     collection.find().comment(MongoComment.NoIndexRequired).limit(1).headOption().map(_.isDefined).flatMap{ hasData =>
       if (hasData) {
-        val isANonDateType: List[BsonType] = BsonType.values.toList.filterNot(Set(BsonType.DATE_TIME, BsonType.END_OF_DOCUMENT, BsonType.MIN_KEY, BsonType.MAX_KEY, BsonType.ARRAY))
+        val collectionName = collection.namespace.getCollectionName
+        val isANonDateType: List[BsonType] = BsonType.values.toList.filterNot(Set(BsonType.DATE_TIME, BsonType.END_OF_DOCUMENT, BsonType.MIN_KEY, BsonType.MAX_KEY, BsonType.ARRAY ))
         val isANonDateTypeOrNull = Filters.or(
-          Filters.equal(key, null) +: isANonDateType.map(t => Filters.`type`(key, t)): _*
+          Filters.equal(keyField, null) +: isANonDateType.map(t => Filters.`type`(keyField, t)): _*
         )
+
         collection
           .aggregate[BsonDocument](Seq(
             Aggregates.`match`(isANonDateTypeOrNull),
-            Aggregates.group(BsonDocument("$type" -> s"$$$key"), Accumulators.sum("n", 1))
+            Aggregates.group(BsonDocument("$type" -> s"$$$keyField"), Accumulators.sum("n", 1))
           ))
-          .hint(Indexes.ascending(key))
+          .hintString(indexName)
           .maxTime((10, TimeUnit.SECONDS))
           .toFuture()
           .map(_.map {
-            case d if d.getString("_id").getValue == "null" => TtlWarning.NullKeyField(collectionName, key, d.getInt32("n").getValue)
-            case d if d.getString("_id").getValue == "missing" => TtlWarning.MissingKeyField(collectionName, key, d.getInt32("n").getValue)
-            case d => TtlWarning.InvalidType(collectionName, key, d.getString("_id").getValue, d.getInt32("n").getValue)
+            case d if d.getString("_id").getValue == "null" => TtlWarning.NullKeyField(collectionName, keyField, d.getInt32("n").getValue)
+            case d if d.getString("_id").getValue == "missing" => TtlWarning.MissingKeyField(collectionName, keyField, d.getInt32("n").getValue)
+            case d => TtlWarning.InvalidType(collectionName, keyField, d.getString("_id").getValue, d.getInt32("n").getValue)
           }.toList)
       } else Future.successful(List[TtlWarning]())
     }

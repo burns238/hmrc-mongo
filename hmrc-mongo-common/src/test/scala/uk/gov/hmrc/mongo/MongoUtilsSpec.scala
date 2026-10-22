@@ -46,7 +46,6 @@ class MongoUtilsSpec
   val collection: MongoCollection[Document] =
     mongoComponent.database.getCollection[Document](collectionName = collectionName)
 
-
   "MongoUtils.ensureIndexes" should {
     "recreate indexes when dropping some indexes" in {
       val indexes1 =
@@ -269,13 +268,13 @@ class MongoUtilsSpec
       val res =
         (for {
           _ <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
-          res <- MongoUtils.checkKeyFieldData(collection, "field2")
+          res <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
         } yield res
           ).futureValue
       res shouldBe List()
     }
 
-    "return an InvalidType warning when ttl index points at non-date" in {
+    "return an InvalidType warning when ttl index key field contains one non-date" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -289,13 +288,34 @@ class MongoUtilsSpec
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
            items =  (1 to 99).map(i => Document("field2" -> (if (i == 30) new BsonInt32(i) else new BsonDateTime(i))))
            _     <- collection.insertMany(items) .toFuture()
-           res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+           res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
          } yield res
         ).futureValue
       res shouldBe List(TtlWarning.InvalidType(collectionName, "field2", "int", 1))
     }
 
-    "return multiple InvalidType warnings when ttl index points at non-date" in {
+    "return an InvalidType warning when ttl index key field contains multiple non-dates" in {
+      val indexes1 =
+        Seq(
+          IndexModel(Indexes.ascending("field1"), IndexOptions()),
+          IndexModel(Indexes.ascending("field2"), IndexOptions()
+            .name("ttlIndex")
+            .expireAfter(1000, TimeUnit.MILLISECONDS)
+          )
+        )
+      val res =
+        (for {
+          _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
+          items =  (1 to 99).map(i => Document("field2" -> (if (i % 2 == 0) new BsonInt32(i) else new BsonDateTime(i))))
+          _     <- collection.insertMany(items) .toFuture()
+          res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
+        } yield res
+          ).futureValue
+
+      res should contain(TtlWarning.InvalidType(collectionName, "field2", "int", 49))
+    }
+
+    "return multiple InvalidType warnings when ttl index key field contains multiple non-date types" in {
       val indexes1 =
         Seq(
           IndexModel(Indexes.ascending("field1"), IndexOptions()),
@@ -309,13 +329,14 @@ class MongoUtilsSpec
           _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
           items =  (1 to 99).map(i => Document("field2" -> (if (i % 2 == 0) new BsonInt32(i) else new BsonString("Something"))))
           _     <- collection.insertMany(items) .toFuture()
-          res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+          res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
         } yield res
           ).futureValue
 
       res should contain(TtlWarning.InvalidType(collectionName, "field2", "int", 49))
       res should contain(TtlWarning.InvalidType(collectionName, "field2", "string", 50))
     }
+
     "return a MissingKeyField warning when ttl index points at missing field" in {
       val indexes1 =
         Seq(
@@ -330,7 +351,7 @@ class MongoUtilsSpec
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
            items =  (1 to 99).map(_ => Document())
            _     <- collection.insertMany(items) .toFuture()
-           res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+           res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
          } yield res
         ).futureValue
       res shouldBe List(TtlWarning.MissingKeyField(collectionName, "field2", 99))
@@ -350,7 +371,7 @@ class MongoUtilsSpec
           _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
           items =  (1 to 99).map(_ => Document("field2" -> BsonNull()))
           _     <- collection.insertMany(items) .toFuture()
-          res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+          res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
         } yield res
           ).futureValue
       res shouldBe List(TtlWarning.NullKeyField(collectionName, "field2", 99))
@@ -371,7 +392,7 @@ class MongoUtilsSpec
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
            items =  (1 to 99).map(i => Document("field2" -> new BsonDateTime(i)))
            _     <- collection.insertMany(items) .toFuture()
-           res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+           res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
          } yield res
         ).futureValue
       res shouldBe List()
@@ -391,7 +412,7 @@ class MongoUtilsSpec
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
            items =  (1 to 99).map(i => Document("field2" -> new BsonArray(Seq(new BsonDateTime(i), new BsonDateTime(i)).asJava)))
            _     <- collection.insertMany(items) .toFuture()
-           res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+           res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
          } yield res
         ).futureValue
       res shouldBe List()
@@ -413,7 +434,7 @@ class MongoUtilsSpec
           _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
           items =  (1 to 99).map(i => Document("field2" -> new BsonArray(Seq(new BsonDateTime(i), new BsonString(i.toString)).asJava)))
           _     <- collection.insertMany(items) .toFuture()
-          res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+          res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
         } yield res
           ).futureValue
       res shouldBe List(TtlWarning.InvalidType(collectionName, "field2", "array", 99))
@@ -433,7 +454,7 @@ class MongoUtilsSpec
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
            items =  (1 to 99).map(i => Document("field2" -> new BsonArray(Seq(new BsonString(i.toString), new BsonString(i.toString)).asJava)))
            _     <- collection.insertMany(items) .toFuture()
-           res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+           res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
          } yield res
         ).futureValue
       res shouldBe List(TtlWarning.InvalidType(collectionName, "field2", "array", 99))
@@ -453,7 +474,7 @@ class MongoUtilsSpec
            _     <- MongoUtils.ensureIndexes(collection, indexes1, replaceIndexes = false)
            items =  (1 to 99).map(i => Document("field2" -> new BsonDateTime(i)))
            _     <- collection.insertMany(items) .toFuture()
-           res   <- MongoUtils.checkKeyFieldData(collection, "field2")
+           res   <- MongoUtils.checkKeyFieldData(collection, "field2", "ttlIndex")
          } yield res
         ).futureValue
       res shouldBe List()
